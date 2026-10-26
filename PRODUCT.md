@@ -21,7 +21,7 @@ A personal daily board with a dedicated focus mode and device-local storage, rat
 Used for everyday planning and quick capture. The first-run board demonstrates a mix of personal tasks and can be edited or cleared.
 
 ## Capabilities and Constraints
-The first version supports task capture, four editable-by-code default stages, drag and drop, search, completion, a focus view, and browser local storage. Single-user and offline-first. Cloud sync, accounts, collaboration, and custom-column editing are open decisions.
+The first version supports task capture, four default stages, project swimlanes, date-based roadmapping with milestones, drag and drop, search, completion, a focus view, and browser local storage. Projects and tasks can be created locally. Single-user and offline-first. Cloud sync, accounts, collaboration, and custom-column editing are open decisions.
 
 ## Evidence on Hand
 No customer research, testimonials, or external product evidence was supplied. Starter tasks are illustrative examples.

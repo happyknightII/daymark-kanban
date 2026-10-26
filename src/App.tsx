@@ -1,50 +1,118 @@
 import { useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
-import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, GripVertical, LayoutGrid, ListFilter, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, FolderKanban, GripVertical, LayoutGrid, ListFilter, Milestone, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
 import './App.css'
 
 type ColumnId = 'inbox' | 'today' | 'doing' | 'done'
-type Task = { id: string; title: string; column: ColumnId; tag: string; priority: 'high' | 'normal' | 'low'; due?: string; time?: string }
+type Task = { id: string; title: string; column: ColumnId; tag: string; project: string; priority: 'high' | 'normal' | 'low'; due?: string; time?: string; milestone?: boolean }
+type View = 'board' | 'projects' | 'roadmap' | 'focus'
 const columns: { id: ColumnId; label: string; tint: string }[] = [
   { id: 'inbox', label: 'To sort', tint: 'sage' },
   { id: 'today', label: 'Today', tint: 'peach' },
   { id: 'doing', label: 'In progress', tint: 'blue' },
   { id: 'done', label: 'Done', tint: 'lilac' },
 ]
+function dateOffset(months: number) {
+  const date = new Date()
+  date.setDate(1)
+  date.setMonth(date.getMonth() + months)
+  date.setDate(Math.min(15, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()))
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 const initialTasks: Task[] = [
-  { id: 'a1', title: 'Book a table for Friday', column: 'inbox', tag: 'Life admin', priority: 'normal' },
-  { id: 'a2', title: 'Send the photos to Maya', column: 'inbox', tag: 'People', priority: 'low' },
-  { id: 'a3', title: 'Pick up the prescription', column: 'inbox', tag: 'Errands', priority: 'high', due: 'Today' },
-  { id: 'b1', title: 'Review the new project brief', column: 'today', tag: 'Studio', priority: 'high', time: '25 min' },
-  { id: 'b2', title: 'Take a proper lunch break', column: 'today', tag: 'Wellbeing', priority: 'normal' },
-  { id: 'b3', title: 'Water the balcony plants', column: 'today', tag: 'Home', priority: 'low' },
-  { id: 'c1', title: 'Plan the week ahead', column: 'doing', tag: 'Personal', priority: 'normal', time: '10 min' },
-  { id: 'd1', title: 'Clear the kitchen counter', column: 'done', tag: 'Home', priority: 'low' },
+  { id: 'a1', title: 'Book a table for Friday', column: 'inbox', tag: 'Life admin', project: 'Personal', priority: 'normal' },
+  { id: 'a2', title: 'Send the photos to Maya', column: 'inbox', tag: 'People', project: 'Personal', priority: 'low' },
+  { id: 'a3', title: 'Pick up the prescription', column: 'inbox', tag: 'Errands', project: 'Personal', priority: 'high', due: 'Today' },
+  { id: 'b1', title: 'Review the new project brief', column: 'today', tag: 'Studio', project: 'Studio', priority: 'high', time: '25 min' },
+  { id: 'b2', title: 'Take a proper lunch break', column: 'today', tag: 'Wellbeing', project: 'Personal', priority: 'normal' },
+  { id: 'b3', title: 'Water the balcony plants', column: 'today', tag: 'Home', project: 'Home', priority: 'low' },
+  { id: 'c1', title: 'Plan the week ahead', column: 'doing', tag: 'Personal', project: 'Personal', priority: 'normal', time: '10 min' },
+  { id: 'd1', title: 'Clear the kitchen counter', column: 'done', tag: 'Home', project: 'Home', priority: 'low' },
+  { id: 'm1', title: 'Approve the new direction', column: 'inbox', tag: 'Studio', project: 'Studio', priority: 'normal', due: dateOffset(1), milestone: true },
+  { id: 'm2', title: 'Share the first release', column: 'inbox', tag: 'Studio', project: 'Studio', priority: 'normal', due: dateOffset(3), milestone: true },
 ]
 const storageKey = 'daymark.tasks.v1'
+const projectStorageKey = 'daymark.projects.v1'
+const initialProjects = ['Personal', 'Studio', 'Home']
+const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function readTasks(): Task[] {
   try {
     const value = localStorage.getItem(storageKey)
-    if (value) return JSON.parse(value) as Task[]
+    if (value) return (JSON.parse(value) as Partial<Task>[]).map((task) => ({
+      ...task,
+      id: task.id ?? crypto.randomUUID(),
+      title: task.title ?? 'Untitled task',
+      column: task.column ?? 'inbox',
+      tag: task.tag ?? 'Personal',
+      project: task.project ?? (initialProjects.includes(task.tag ?? '') ? task.tag! : 'Personal'),
+      priority: task.priority ?? 'normal',
+      due: task.due === 'Today' ? new Date().toISOString().slice(0, 10) : task.due,
+    })) as Task[]
   } catch { /* Use the starter board when saved data is unavailable. */ }
   return initialTasks
+}
+
+function readProjects(): string[] {
+  try {
+    const value = localStorage.getItem(projectStorageKey)
+    if (value) return JSON.parse(value) as string[]
+  } catch { /* Use the starter projects when saved data is unavailable. */ }
+  return initialProjects
 }
 
 function IconButton({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
   return <button className="icon-button" aria-label={label} title={label} onClick={onClick}>{children}</button>
 }
 
+function TaskCard({ task, onMove, onDelete, onDragStart, onDragEnd, showProject = false }: {
+  task: Task
+  onMove: () => void
+  onDelete: () => void
+  onDragStart: (event: DragEvent<HTMLElement>) => void
+  onDragEnd: () => void
+  showProject?: boolean
+}) {
+  return <article className={`task-card ${task.column === 'done' ? 'is-done' : ''} ${task.milestone ? 'is-milestone' : ''}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}>
+    <button className="drag-handle" aria-label={`Drag ${task.title}`} tabIndex={-1}><GripVertical size={15} /></button>
+    <div className="task-main">
+      <div className="task-tags">{task.milestone && <span className="milestone-label"><Milestone size={11} /> Milestone</span>}{showProject && <span className="project-label">{task.project}</span>}{!task.milestone && <span className={`tag tag-${task.tag.toLowerCase().replace(' ', '-')}`}>{task.tag}</span>}{task.priority === 'high' && <span className="priority"><ArrowUp size={11} /> Important</span>}</div>
+      <button className="task-title" onClick={onMove}>{task.title}</button>
+      {(task.due || task.time) && <div className="task-meta">{task.due && <span className="due-label"><CalendarDays size={12} /> {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${task.due}T12:00:00`))}</span>}{task.time && <span><Clock3 size={12} /> {task.time}</span>}</div>}
+    </div>
+    <button className="task-menu" aria-label={`Delete ${task.title}`} onClick={onDelete}><X size={14} /></button>
+  </article>
+}
+
+function TaskComposer({ projects, title, project, due, milestone, onTitle, onProject, onDue, onMilestone, onSubmit, onCancel }: {
+  projects: string[]; title: string; project: string; due: string; milestone: boolean
+  onTitle: (value: string) => void; onProject: (value: string) => void; onDue: (value: string) => void
+  onMilestone: (value: boolean) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void
+}) {
+  return <form className="task-draft" onSubmit={onSubmit}>
+    <input autoFocus value={title} onChange={(event) => onTitle(event.target.value)} placeholder={milestone ? 'Name this milestone' : 'What’s on your mind?'} aria-label={milestone ? 'Milestone name' : 'New task title'} />
+    <div className="task-draft-options"><select aria-label="Project" value={project} onChange={(event) => onProject(event.target.value)}>{projects.map((name) => <option key={name}>{name}</option>)}</select><label><CalendarDays size={12} /><input aria-label="Due date" type="date" value={due} onChange={(event) => onDue(event.target.value)} /></label><label className="milestone-toggle"><input type="checkbox" checked={milestone} onChange={(event) => onMilestone(event.target.checked)} /> Milestone</label></div>
+    <div className="task-draft-actions"><span>{milestone && !due ? 'Choose a date for this milestone' : 'Press enter to add'}</span><button type="button" onClick={onCancel} aria-label="Cancel"><X size={15} /></button><button className="draft-submit" type="submit" aria-label="Save task" disabled={!title.trim() || (milestone && !due)}><Check size={15} /></button></div>
+  </form>
+}
+
 function App() {
   const [tasks, setTasks] = useState<Task[]>(readTasks)
+  const [projects, setProjects] = useState<string[]>(readProjects)
   const [query, setQuery] = useState('')
-  const [activeView, setActiveView] = useState<'board' | 'focus'>('board')
+  const [activeView, setActiveView] = useState<View>('board')
   const [draftColumn, setDraftColumn] = useState<ColumnId | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
+  const [draftProject, setDraftProject] = useState('Personal')
+  const [draftDue, setDraftDue] = useState('')
+  const [draftMilestone, setDraftMilestone] = useState(false)
+  const [projectDraftOpen, setProjectDraftOpen] = useState(false)
+  const [projectName, setProjectName] = useState('')
   const [dragging, setDragging] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showDone, setShowDone] = useState(true)
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(tasks)) }, [tasks])
+  useEffect(() => { localStorage.setItem(projectStorageKey, JSON.stringify(projects)) }, [projects])
 
   const visibleColumns = columns.filter((column) => showDone || column.id !== 'done')
   const visibleTasks = useMemo(() => tasks.filter((task) => task.title.toLowerCase().includes(query.toLowerCase())), [tasks, query])
@@ -54,9 +122,11 @@ function App() {
   function addTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const title = draftTitle.trim()
-    if (!title || !draftColumn) return
-    setTasks((current) => [{ id: crypto.randomUUID(), title, column: draftColumn, tag: 'Personal', priority: 'normal' }, ...current])
+    if (!title || !draftColumn || (draftMilestone && !draftDue)) return
+    setTasks((current) => [{ id: crypto.randomUUID(), title, column: draftColumn, tag: draftProject, project: draftProject, priority: 'normal', due: draftDue || undefined, milestone: draftMilestone }, ...current])
     setDraftTitle('')
+    setDraftDue('')
+    setDraftMilestone(false)
     setDraftColumn(null)
   }
   function moveTask(id: string, column: ColumnId) {
@@ -68,13 +138,41 @@ function App() {
     const id = event.dataTransfer.getData('text/plain') || dragging
     if (id) moveTask(id, column)
   }
-  function startAdd(column: ColumnId) { setDraftColumn(column); setDraftTitle('') }
+  function onRoadmapDrop(event: DragEvent<HTMLElement>, project: string, monthKey: string) {
+    event.preventDefault()
+    const id = event.dataTransfer.getData('text/plain') || dragging
+    if (!id) return
+    const [year, month] = monthKey.split('-').map(Number)
+    setTasks((current) => current.map((task) => {
+      if (task.id !== id) return task
+      const day = String(Math.min(28, Number(task.due?.slice(-2) ?? 15))).padStart(2, '0')
+      return { ...task, project, due: `${year}-${String(month).padStart(2, '0')}-${day}` }
+    }))
+    setDragging(null)
+  }
+  function startAdd(column: ColumnId, milestone = false) { setDraftColumn(column); setDraftTitle(''); setDraftProject(projects[0] ?? 'Personal'); setDraftDue(''); setDraftMilestone(milestone) }
+  function addProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = projectName.trim()
+    if (!name || projects.some((project) => project.toLowerCase() === name.toLowerCase())) return
+    setProjects((current) => [...current, name])
+    setProjectName('')
+    setProjectDraftOpen(false)
+  }
   function nextUp() {
     const next = tasks.find((task) => task.column === 'today')
     if (next) moveTask(next.id, 'doing')
   }
 
   const [date] = useState(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date()))
+  const [roadmapStart] = useState(() => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() } })
+  const roadmapMonths = useMemo(() => Array.from({ length: 6 }, (_, index) => {
+    const absoluteMonth = roadmapStart.month + index
+    const year = roadmapStart.year + Math.floor(absoluteMonth / 12)
+    const month = absoluteMonth % 12
+    return { key: `${year}-${String(month + 1).padStart(2, '0')}`, label: monthNames[month], year }
+  }), [roadmapStart])
+  const roadmapUnplaced = visibleTasks.filter((task) => !task.due || !roadmapMonths.some((month) => task.due?.startsWith(month.key)))
 
   return (
     <div className="app-shell">
@@ -83,6 +181,8 @@ function App() {
         <div className="space-label">YOUR SPACE <button aria-label="Space settings"><Settings2 size={14} /></button></div>
         <nav className="main-nav" aria-label="Main navigation">
           <button className={activeView === 'board' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('board')}><LayoutGrid size={17} /> <span>My board</span><span className="nav-count">{todayCount}</span></button>
+          <button className={activeView === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('projects')}><FolderKanban size={17} /> <span>Projects</span></button>
+          <button className={activeView === 'roadmap' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('roadmap')}><Milestone size={17} /> <span>Roadmap</span></button>
           <button className={activeView === 'focus' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('focus')}><Sparkles size={17} /> <span>Focus mode</span></button>
         </nav>
         <div className="sidebar-bottom">
@@ -93,12 +193,12 @@ function App() {
 
       <main id="top" className="main-content">
         <header className="topbar">
-          <div className="breadcrumbs"><span>My space</span><span className="crumb-slash">/</span><strong>{activeView === 'focus' ? 'Focus mode' : 'My board'}</strong></div>
+          <div className="breadcrumbs"><span>My space</span><span className="crumb-slash">/</span><strong>{{ board: 'My board', projects: 'Projects', roadmap: 'Roadmap', focus: 'Focus mode' }[activeView]}</strong></div>
           <div className="topbar-actions">
             <label className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a task" aria-label="Find a task" /><kbd><Command size={10} /> K</kbd></label>
             <span className="topbar-divider" />
             <IconButton label="Help"><CircleHelp size={17} /></IconButton>
-            <div className="create-wrap"><button className="create-button" onClick={() => setMenuOpen((open) => !open)}><Plus size={16} /> <span>New task</span><ChevronDown size={14} /></button>{menuOpen && <div className="create-menu"><button onClick={() => { startAdd('today'); setMenuOpen(false) }}>Add to Today</button><button onClick={() => { startAdd('inbox'); setMenuOpen(false) }}>Capture for later</button></div>}</div>
+            <div className="create-wrap"><button className="create-button" onClick={() => setMenuOpen((open) => !open)}><Plus size={16} /> <span>{activeView === 'roadmap' ? 'New milestone' : 'New task'}</span><ChevronDown size={14} /></button>{menuOpen && <div className="create-menu">{activeView === 'roadmap' && <button onClick={() => { startAdd('inbox', true); setMenuOpen(false) }}>Add milestone</button>}<button onClick={() => { startAdd('today'); setMenuOpen(false) }}>Add to Today</button><button onClick={() => { startAdd('inbox'); setMenuOpen(false) }}>Capture for later</button>{activeView === 'projects' && <button onClick={() => { setProjectDraftOpen(true); setMenuOpen(false) }}>New project</button>}</div>}</div>
           </div>
         </header>
 
@@ -113,33 +213,53 @@ function App() {
           </section>
         ) : <>
           <section className="page-heading">
-            <div><div className="date-line"><Sun size={14} /> {date}</div><h1>Make today <em>yours.</em></h1><p>A little structure for all the things on your mind.</p></div>
-            <div className="day-summary"><div className="summary-avatars"><span>B</span><i>✦</i></div><div><strong>{todayCount} things in motion</strong><small>{completedCount ? `${completedCount} done today — nice work` : 'Take it one thing at a time'}</small></div></div>
+            <div><div className="date-line"><Sun size={14} /> {date}</div><h1>{activeView === 'board' ? <>Make today <em>yours.</em></> : activeView === 'projects' ? <>Projects, <em>in motion.</em></> : <>Plan the bigger <em>picture.</em></>}</h1><p>{activeView === 'board' ? 'A little structure for all the things on your mind.' : activeView === 'projects' ? 'See every project move through the same simple stages.' : 'Give milestones a date and see how your projects line up.'}</p></div>
+            {activeView === 'board' && <div className="day-summary"><div className="summary-avatars"><span>B</span><i>✦</i></div><div><strong>{todayCount} things in motion</strong><small>{completedCount ? `${completedCount} done today — nice work` : 'Take it one thing at a time'}</small></div></div>}
           </section>
-          <div className="board-toolbar"><div className="board-tabs"><button className="tab-active"><LayoutGrid size={15} /> Board</button><button onClick={() => setActiveView('focus')}><Sparkles size={15} /> Focus</button></div><div className="board-tools"><span className="board-private"><span /> Just for you</span><button className="filter-button" onClick={() => setShowDone((value) => !value)}><ListFilter size={15} /> {showDone ? 'Hide done' : 'Show done'}</button></div></div>
-          <section className="board" aria-label="Kanban board">
-            {visibleColumns.map((column) => {
-              const items = visibleTasks.filter((task) => task.column === column.id)
-              return <section className={`board-column ${dragging ? 'is-dragging' : ''}`} key={column.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onDrop(event, column.id)}>
-                <div className="column-head"><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2><span className="column-count">{items.length}</span><IconButton label={`Add to ${column.label.toLowerCase()}`} onClick={() => startAdd(column.id)}><Plus size={16} /></IconButton></div>
-                {draftColumn === column.id && <form className="task-draft" onSubmit={addTask}><input autoFocus value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="What’s on your mind?" aria-label="New task title" /><div><span>Press enter to add</span><button type="button" onClick={() => setDraftColumn(null)} aria-label="Cancel"><X size={15} /></button><button className="draft-submit" type="submit" aria-label="Save task"><Check size={15} /></button></div></form>}
-                <div className="task-list">
-                  {items.map((task) => <article className={`task-card ${task.column === 'done' ? 'is-done' : ''}`} key={task.id} draggable onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)}>
-                    <button className="drag-handle" aria-label={`Drag ${task.title}`} tabIndex={-1}><GripVertical size={15} /></button>
-                    <div className="task-main"><div className="task-tags"><span className={`tag tag-${task.tag.toLowerCase().replace(' ', '-')}`}>{task.tag}</span>{task.priority === 'high' && <span className="priority"><ArrowUp size={11} /> Important</span>}</div>
-                      <button className="task-title" onClick={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')}>{task.title}</button>
-                      {(task.due || task.time) && <div className="task-meta">{task.due && <span className="due-label"><CalendarDays size={12} /> {task.due}</span>}{task.time && <span><Clock3 size={12} /> {task.time}</span>}</div>}
-                    </div>
-                    <button className="task-menu" aria-label={`Delete ${task.title}`} onClick={() => setTasks((current) => current.filter((item) => item.id !== task.id))}><X size={14} /></button>
-                  </article>)}
-                  {items.length === 0 && draftColumn !== column.id && <div className="empty-column">{column.id === 'done' ? 'A clean slate. Enjoy it.' : 'Nothing here yet.'}</div>}
+          <div className="board-toolbar"><div className="board-tabs"><button className={activeView === 'board' ? 'tab-active' : ''} onClick={() => setActiveView('board')}><LayoutGrid size={15} /> Board</button><button className={activeView === 'projects' ? 'tab-active' : ''} onClick={() => setActiveView('projects')}><FolderKanban size={15} /> Projects</button><button className={activeView === 'roadmap' ? 'tab-active' : ''} onClick={() => setActiveView('roadmap')}><Milestone size={15} /> Roadmap</button></div><div className="board-tools"><span className="board-private"><span /> Just for you</span>{activeView === 'projects' && <button className="filter-button" onClick={() => setProjectDraftOpen((open) => !open)}><Plus size={15} /> New project</button>}{activeView === 'board' && <button className="filter-button" onClick={() => setShowDone((value) => !value)}><ListFilter size={15} /> {showDone ? 'Hide done' : 'Show done'}</button>}</div></div>
+          {projectDraftOpen && <form className="project-create" onSubmit={addProject}><FolderKanban size={16} /><input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Name your project" aria-label="Project name" /><button type="button" onClick={() => setProjectDraftOpen(false)} aria-label="Cancel"><X size={15} /></button><button className="draft-submit" type="submit" disabled={!projectName.trim()}><Check size={15} /> Add project</button></form>}
+          {activeView === 'board' && <>
+            <section className="board" aria-label="Kanban board">
+              {visibleColumns.map((column) => {
+                const items = visibleTasks.filter((task) => task.column === column.id)
+                return <section className={`board-column ${dragging ? 'is-dragging' : ''}`} key={column.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onDrop(event, column.id)}>
+                  <div className="column-head"><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2><span className="column-count">{items.length}</span><IconButton label={`Add to ${column.label.toLowerCase()}`} onClick={() => startAdd(column.id)}><Plus size={16} /></IconButton></div>
+                  {draftColumn === column.id && <TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} />}
+                  <div className="task-list">{items.map((task) => <TaskCard key={task.id} task={task} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}{items.length === 0 && draftColumn !== column.id && <div className="empty-column">{column.id === 'done' ? 'A clean slate. Enjoy it.' : 'Nothing here yet.'}</div>}</div>
+                  {column.id !== 'done' && <button className="add-task" onClick={() => startAdd(column.id)}><Plus size={15} /> Add a task</button>}
+                </section>
+              })}
+              {visibleColumns.length < 4 && <button className="show-done" onClick={() => setShowDone(true)}><Plus size={15} /> Show done column</button>}
+            </section>
+            <footer className="board-footer"><span><span className="local-indicator" /> Saved on this device</span><span>Drag tasks between columns · click a task to mark it done</span></footer>
+          </>}
+          {activeView === 'projects' && <section className="swimlanes" aria-label="Project swimlanes">
+            <div className="swimlane-header"><span>PROJECT</span>{columns.map((column) => <span key={column.id}><i className={`column-dot ${column.tint}`} />{column.label}</span>)}</div>
+            {projects.map((project) => <div className="swimlane-row" key={project}>
+              <header className="swimlane-project"><span className="project-symbol"><FolderKanban size={15} /></span><div><strong>{project}</strong><small>{tasks.filter((task) => task.project === project).length} tasks</small></div><button aria-label={`Add a task to ${project}`} onClick={() => { startAdd('today'); setDraftProject(project) }}><Plus size={15} /></button></header>
+              {columns.map((column) => {
+                const items = visibleTasks.filter((task) => task.project === project && task.column === column.id)
+                return <div className="swimlane-cell" key={column.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData('text/plain') || dragging; if (id) { setTasks((current) => current.map((task) => task.id === id ? { ...task, project, column: column.id } : task)); setDragging(null) } }}>
+                  {draftColumn === column.id && draftProject === project && <TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} />}
+                  {items.map((task) => <TaskCard key={task.id} task={task} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}
+                  {items.length === 0 && !(draftColumn === column.id && draftProject === project) && <button className="lane-add" onClick={() => { startAdd(column.id); setDraftProject(project) }}><Plus size={14} /> Add</button>}
                 </div>
-                {column.id !== 'done' && <button className="add-task" onClick={() => startAdd(column.id)}><Plus size={15} /> Add a task</button>}
-              </section>
-            })}
-            {visibleColumns.length < 4 && <button className="show-done" onClick={() => setShowDone(true)}><Plus size={15} /> Show done column</button>}
-          </section>
-          <footer className="board-footer"><span><span className="local-indicator" /> Saved on this device</span><span>Drag tasks between columns · click a task to mark it done</span></footer>
+              })}
+            </div>)}
+          </section>}
+          {activeView === 'roadmap' && <section className="roadmap" aria-label="Project roadmap">
+            <div className="roadmap-grid roadmap-header"><span>PROJECT</span>{roadmapMonths.map((month) => <span key={month.key}>{month.label}<small>{month.year}</small></span>)}</div>
+            {projects.map((project) => <div className="roadmap-grid roadmap-row" key={project}>
+              <header className="roadmap-project"><strong>{project}</strong><small>{tasks.filter((task) => task.project === project && task.due).length} dated items</small></header>
+              {roadmapMonths.map((month) => {
+                const items = visibleTasks.filter((task) => task.project === project && task.due?.startsWith(month.key))
+                return <section className="roadmap-cell" key={month.key} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onRoadmapDrop(event, project, month.key)}>{items.map((task) => <TaskCard key={task.id} task={task} showProject={false} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}</section>
+              })}
+            </div>)}
+            {roadmapUnplaced.length > 0 && <section className="roadmap-undated"><header><strong>Unscheduled &amp; later</strong><small>{roadmapUnplaced.length} items outside this six-month view</small></header><div>{roadmapUnplaced.map((task) => <TaskCard key={task.id} task={task} showProject onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}</div></section>}
+            <p className="roadmap-hint"><Milestone size={14} /> Drag any card to a month to give it a date. Create dated milestones from the top-right menu.</p>
+          </section>}
+          {draftColumn !== null && activeView !== 'board' && activeView !== 'projects' && <div className="roadmap-create"><TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} /></div>}
         </>}
       </main>
     </div>

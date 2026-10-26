@@ -20,6 +20,8 @@ Tasks are saved in this browser's local storage. The sample board is illustrativ
 - Four daily stages: To sort, Today, In progress, and Done.
 - Quick task capture, search, drag-and-drop, and completion.
 - A focused view for bringing one task forward.
+- Project swimlanes show each project's tasks across the same stages; create projects as needed.
+- The roadmap groups dated tasks and milestones by project across the next six months. Drag cards onto a month to reschedule them.
 - Responsive layout for desktop and mobile.
 
-Daymark is an early personal project. Cloud sync, collaboration, and user-defined columns are not included yet.
+Daymark is an early personal project. Cloud sync, collaboration, and user-defined workflow stages are not included yet.
