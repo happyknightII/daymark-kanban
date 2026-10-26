@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
 import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, FolderKanban, GripVertical, LayoutGrid, ListFilter, Milestone, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { KanbanColumns } from './features/kanban/KanbanColumns'
+import type { KanbanItemDragProps } from './features/kanban/useKanbanDrag'
+import { groupTasksByProject } from './features/kanban/projectSwimlanes'
+import { KanbanScrollFrame } from './features/kanban/KanbanScrollFrame'
 import './App.css'
 
 type ColumnId = 'inbox' | 'today' | 'doing' | 'done'
@@ -64,15 +68,18 @@ function IconButton({ label, children, onClick }: { label: string; children: Rea
   return <button className="icon-button" aria-label={label} title={label} onClick={onClick}>{children}</button>
 }
 
-function TaskCard({ task, onMove, onDelete, onDragStart, onDragEnd, showProject = false }: {
+function TaskCard({ task, onMove, onDelete, onDragStart, onDragEnd, dragProps, showProject = false, 'data-kanban-item-id': kanbanItemId }: {
   task: Task
+  'data-kanban-item-id'?: string
   onMove: () => void
   onDelete: () => void
-  onDragStart: (event: DragEvent<HTMLElement>) => void
-  onDragEnd: () => void
+  onDragStart?: (event: DragEvent<HTMLElement>) => void
+  onDragEnd?: () => void
+  dragProps?: KanbanItemDragProps
   showProject?: boolean
 }) {
-  return <article className={`task-card ${task.column === 'done' ? 'is-done' : ''} ${task.milestone ? 'is-milestone' : ''}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}>
+  const { className: dragClassName, draggable, ...kanbanEvents } = dragProps ?? {}
+  return <article data-kanban-item-id={kanbanItemId} className={`task-card ${task.column === 'done' ? 'is-done' : ''} ${task.milestone ? 'is-milestone' : ''} ${dragClassName ?? ''}`} draggable={draggable ?? true} {...kanbanEvents} onDragStart={onDragStart ?? dragProps?.onDragStart} onDragEnd={onDragEnd ?? dragProps?.onDragEnd}>
     <button className="drag-handle" aria-label={`Drag ${task.title}`} tabIndex={-1}><GripVertical size={15} /></button>
     <div className="task-main">
       <div className="task-tags">{task.milestone && <span className="milestone-label"><Milestone size={11} /> Milestone</span>}{showProject && <span className="project-label">{task.project}</span>}{!task.milestone && <span className={`tag tag-${task.tag.toLowerCase().replace(' ', '-')}`}>{task.tag}</span>}{task.priority === 'high' && <span className="priority"><ArrowUp size={11} /> Important</span>}</div>
@@ -113,9 +120,36 @@ function App() {
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(tasks)) }, [tasks])
   useEffect(() => { localStorage.setItem(projectStorageKey, JSON.stringify(projects)) }, [projects])
+  const startAdd = useCallback((column: ColumnId, milestone = false) => { setDraftColumn(column); setDraftTitle(''); setDraftProject(projects[0] ?? 'Personal'); setDraftDue(''); setDraftMilestone(milestone) }, [projects])
 
   const visibleColumns = columns.filter((column) => showDone || column.id !== 'done')
   const visibleTasks = useMemo(() => tasks.filter((task) => task.title.toLowerCase().includes(query.toLowerCase())), [tasks, query])
+  const boardItemsByState = useMemo(() => Object.fromEntries(columns.map((column) => [column.id, visibleTasks.filter((task) => task.column === column.id)])) as Record<ColumnId, Task[]>, [visibleTasks])
+  const boardColumnDefinitions = useMemo(() => visibleColumns.map((column) => ({
+    state: column.id,
+    header: <><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2><IconButton label={`Add to ${column.label.toLowerCase()}`} onClick={() => startAdd(column.id)}><Plus size={15} /></IconButton></>,
+    count: boardItemsByState[column.id].length,
+  })), [boardItemsByState, startAdd, visibleColumns])
+  const projectColumnDefinitions = useMemo(() => columns.map((column) => ({
+    state: column.id,
+    header: <><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2></>,
+    count: boardItemsByState[column.id].length,
+  })), [boardItemsByState])
+  const projectLanes = useMemo(() => groupTasksByProject(visibleTasks, projects, columns.map((column) => column.id)), [visibleTasks, projects])
+  const projectSwimlaneGroups = [{
+    id: 'projects',
+    label: 'Projects',
+    lanes: projectLanes.map((project) => ({
+      id: project.id,
+      header: <span className="swimlane-project"><span className="project-symbol"><FolderKanban size={15} /></span><span><strong>{project.label}</strong><small>{project.itemCount} tasks</small></span></span>,
+      itemsByState: project.itemsByState,
+      footerByState: Object.fromEntries(columns.map((column) => [column.id,
+        draftColumn === column.id && draftProject === project.id
+          ? <TaskComposer key="draft" projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} />
+          : <button key="add" className="lane-add" onClick={() => { startAdd(column.id); setDraftProject(project.id) }}><Plus size={14} /> Add</button>,
+      ])) as Partial<Record<ColumnId, React.ReactNode>>,
+    })),
+  }]
   const todayCount = tasks.filter((task) => task.column === 'today' || task.column === 'doing').length
   const completedCount = tasks.filter((task) => task.column === 'done').length
 
@@ -129,14 +163,9 @@ function App() {
     setDraftMilestone(false)
     setDraftColumn(null)
   }
-  function moveTask(id: string, column: ColumnId) {
-    setTasks((current) => current.map((task) => task.id === id ? { ...task, column } : task))
+  function moveTask(id: string, column: ColumnId, project?: string) {
+    setTasks((current) => current.map((task) => task.id === id ? { ...task, column, project: project ?? task.project } : task))
     setDragging(null)
-  }
-  function onDrop(event: DragEvent<HTMLElement>, column: ColumnId) {
-    event.preventDefault()
-    const id = event.dataTransfer.getData('text/plain') || dragging
-    if (id) moveTask(id, column)
   }
   function onRoadmapDrop(event: DragEvent<HTMLElement>, project: string, monthKey: string) {
     event.preventDefault()
@@ -150,7 +179,6 @@ function App() {
     }))
     setDragging(null)
   }
-  function startAdd(column: ColumnId, milestone = false) { setDraftColumn(column); setDraftTitle(''); setDraftProject(projects[0] ?? 'Personal'); setDraftDue(''); setDraftMilestone(milestone) }
   function addProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = projectName.trim()
@@ -219,41 +247,48 @@ function App() {
           <div className="board-toolbar"><div className="board-tabs"><button className={activeView === 'board' ? 'tab-active' : ''} onClick={() => setActiveView('board')}><LayoutGrid size={15} /> Board</button><button className={activeView === 'projects' ? 'tab-active' : ''} onClick={() => setActiveView('projects')}><FolderKanban size={15} /> Projects</button><button className={activeView === 'roadmap' ? 'tab-active' : ''} onClick={() => setActiveView('roadmap')}><Milestone size={15} /> Roadmap</button></div><div className="board-tools"><span className="board-private"><span /> Just for you</span>{activeView === 'projects' && <button className="filter-button" onClick={() => setProjectDraftOpen((open) => !open)}><Plus size={15} /> New project</button>}{activeView === 'board' && <button className="filter-button" onClick={() => setShowDone((value) => !value)}><ListFilter size={15} /> {showDone ? 'Hide done' : 'Show done'}</button>}</div></div>
           {projectDraftOpen && <form className="project-create" onSubmit={addProject}><FolderKanban size={16} /><input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Name your project" aria-label="Project name" /><button type="button" onClick={() => setProjectDraftOpen(false)} aria-label="Cancel"><X size={15} /></button><button className="draft-submit" type="submit" disabled={!projectName.trim()}><Check size={15} /> Add project</button></form>}
           {activeView === 'board' && <>
-            <section className="board" aria-label="Kanban board">
-              {visibleColumns.map((column) => {
-                const items = visibleTasks.filter((task) => task.column === column.id)
-                return <section className={`board-column ${dragging ? 'is-dragging' : ''}`} key={column.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onDrop(event, column.id)}>
-                  <div className="column-head"><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2><span className="column-count">{items.length}</span><IconButton label={`Add to ${column.label.toLowerCase()}`} onClick={() => startAdd(column.id)}><Plus size={16} /></IconButton></div>
-                  {draftColumn === column.id && <TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} />}
-                  <div className="task-list">{items.map((task) => <TaskCard key={task.id} task={task} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}{items.length === 0 && draftColumn !== column.id && <div className="empty-column">{column.id === 'done' ? 'A clean slate. Enjoy it.' : 'Nothing here yet.'}</div>}</div>
-                  {column.id !== 'done' && <button className="add-task" onClick={() => startAdd(column.id)}><Plus size={15} /> Add a task</button>}
-                </section>
-              })}
-              {visibleColumns.length < 4 && <button className="show-done" onClick={() => setShowDone(true)}><Plus size={15} /> Show done column</button>}
-            </section>
+            {draftColumn && <div className="board-composer"><TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} /></div>}
+            <KanbanScrollFrame><KanbanColumns
+              boardClassName="board"
+              columnBodyClassName="task-list"
+              columnClassName="board-column"
+              columnEmptyClassName="empty-column"
+              columnHeaderClassName="column-head"
+              columnCountClassName="column-count"
+              columns={boardColumnDefinitions}
+              emptyLabel="Nothing here yet."
+              getItemId={(task) => task.id}
+              getItemDragLabel={(task) => task.title}
+              itemsByState={boardItemsByState}
+              onItemDrop={(task, target) => moveTask(task.id, target)}
+              renderItem={(task, _state, dragProps) => <TaskCard data-kanban-item-id={task.id} task={task} dragProps={dragProps} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} />}
+            /></KanbanScrollFrame>
             <footer className="board-footer"><span><span className="local-indicator" /> Saved on this device</span><span>Drag tasks between columns · click a task to mark it done</span></footer>
           </>}
-          {activeView === 'projects' && <section className="swimlanes" aria-label="Project swimlanes">
-            <div className="swimlane-header"><span>PROJECT</span>{columns.map((column) => <span key={column.id}><i className={`column-dot ${column.tint}`} />{column.label}</span>)}</div>
-            {projects.map((project) => <div className="swimlane-row" key={project}>
-              <header className="swimlane-project"><span className="project-symbol"><FolderKanban size={15} /></span><div><strong>{project}</strong><small>{tasks.filter((task) => task.project === project).length} tasks</small></div><button aria-label={`Add a task to ${project}`} onClick={() => { startAdd('today'); setDraftProject(project) }}><Plus size={15} /></button></header>
-              {columns.map((column) => {
-                const items = visibleTasks.filter((task) => task.project === project && task.column === column.id)
-                return <div className="swimlane-cell" key={column.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData('text/plain') || dragging; if (id) { setTasks((current) => current.map((task) => task.id === id ? { ...task, project, column: column.id } : task)); setDragging(null) } }}>
-                  {draftColumn === column.id && draftProject === project && <TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} />}
-                  {items.map((task) => <TaskCard key={task.id} task={task} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}
-                  {items.length === 0 && !(draftColumn === column.id && draftProject === project) && <button className="lane-add" onClick={() => { startAdd(column.id); setDraftProject(project) }}><Plus size={14} /> Add</button>}
-                </div>
-              })}
-            </div>)}
-          </section>}
+          {activeView === 'projects' && <KanbanScrollFrame><KanbanColumns
+            boardClassName="swimlanes-board"
+            columnBodyClassName="task-list"
+            columnClassName="board-column"
+            columnEmptyClassName="empty-column"
+            columnHeaderClassName="column-head"
+            columnCountClassName="column-count"
+            columns={projectColumnDefinitions}
+            emptyLabel="No tasks in this project."
+            getItemId={(task) => task.id}
+            getItemLaneId={(task) => task.project}
+            getItemDragLabel={(task) => task.title}
+            itemsByState={boardItemsByState}
+            onItemDrop={(task, target, _source, targetProject) => moveTask(task.id, target, targetProject)}
+            renderItem={(task, _state, dragProps) => <TaskCard data-kanban-item-id={task.id} task={task} dragProps={dragProps} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} />}
+            swimlaneGroups={projectSwimlaneGroups}
+          /></KanbanScrollFrame>}
           {activeView === 'roadmap' && <section className="roadmap" aria-label="Project roadmap">
             <div className="roadmap-grid roadmap-header"><span>PROJECT</span>{roadmapMonths.map((month) => <span key={month.key}>{month.label}<small>{month.year}</small></span>)}</div>
-            {projects.map((project) => <div className="roadmap-grid roadmap-row" key={project}>
-              <header className="roadmap-project"><strong>{project}</strong><small>{tasks.filter((task) => task.project === project && task.due).length} dated items</small></header>
+            {projectLanes.map((project) => <div className="roadmap-grid roadmap-row" key={project.id}>
+              <header className="roadmap-project"><strong>{project.label}</strong><small>{project.itemsByState[columns[0].id].filter((task) => task.due).length + project.itemsByState[columns[1].id].filter((task) => task.due).length + project.itemsByState[columns[2].id].filter((task) => task.due).length + project.itemsByState[columns[3].id].filter((task) => task.due).length} dated items</small></header>
               {roadmapMonths.map((month) => {
-                const items = visibleTasks.filter((task) => task.project === project && task.due?.startsWith(month.key))
-                return <section className="roadmap-cell" key={month.key} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onRoadmapDrop(event, project, month.key)}>{items.map((task) => <TaskCard key={task.id} task={task} showProject={false} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}</section>
+                const items = columns.flatMap((column) => project.itemsByState[column.id]).filter((task) => task.due?.startsWith(month.key))
+                return <section className="roadmap-cell" key={month.key} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onRoadmapDrop(event, project.id, month.key)}>{items.map((task) => <TaskCard key={task.id} task={task} showProject={false} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}</section>
               })}
             </div>)}
             {roadmapUnplaced.length > 0 && <section className="roadmap-undated"><header><strong>Unscheduled &amp; later</strong><small>{roadmapUnplaced.length} items outside this six-month view</small></header><div>{roadmapUnplaced.map((task) => <TaskCard key={task.id} task={task} showProject onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} onDragStart={(event) => { setDragging(task.id); event.dataTransfer.setData('text/plain', task.id) }} onDragEnd={() => setDragging(null)} />)}</div></section>}

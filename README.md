@@ -25,3 +25,7 @@ Tasks are saved in this browser's local storage. The sample board is illustrativ
 - Responsive layout for desktop and mobile.
 
 Daymark is an early personal project. Cloud sync, collaboration, and user-defined workflow stages are not included yet.
+
+## Kanban implementation
+
+The generic board renderer, swimlane disclosure components, drag handling, and overflow controls in `src/features/kanban/` are adapted from the Mission Control web Kanban implementation. Daymark keeps its own task model, project grouping, roadmap, and local persistence.

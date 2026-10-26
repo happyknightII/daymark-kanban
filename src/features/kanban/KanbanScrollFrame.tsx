@@ -1,0 +1,141 @@
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+
+import { ChevronLeft as IconChevronLeft, ChevronRight as IconChevronRight } from "lucide-react";
+
+interface KanbanScrollFrameProps {
+  children: ReactNode;
+  motionClassName?: string;
+  shellRef?: RefObject<HTMLDivElement | null>;
+  style?: CSSProperties;
+  isFocused?: boolean;
+}
+
+export function KanbanScrollFrame({
+  children,
+  motionClassName = "",
+  shellRef: providedShellRef,
+  style,
+  isFocused = false,
+}: KanbanScrollFrameProps) {
+  const internalShellRef = useRef<HTMLDivElement>(null);
+  const shellRef = providedShellRef ?? internalShellRef;
+  const scrollHorizontally = (direction: "left" | "right") => {
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    shell.scrollBy({
+      left: (direction === "left" ? -1 : 1) * Math.max(shell.clientWidth * 0.8, 120),
+      behavior:
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+    });
+  };
+  const [scrollState, setScrollState] = useState({
+    canScrollLeft: false,
+    canScrollRight: false,
+    hasOverflow: false,
+  });
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) {
+      setScrollState({
+        canScrollLeft: false,
+        canScrollRight: false,
+        hasOverflow: false,
+      });
+      return;
+    }
+
+    const updateScrollState = () => {
+      const maxScrollLeft = Math.max(0, shell.scrollWidth - shell.clientWidth);
+      const nextHasOverflow = shell.scrollWidth > shell.clientWidth + 4;
+      const nextCanScrollLeft = nextHasOverflow && shell.scrollLeft > 4;
+      const nextCanScrollRight = nextHasOverflow && shell.scrollLeft < maxScrollLeft - 4;
+
+      setScrollState((current) =>
+        current.hasOverflow === nextHasOverflow &&
+        current.canScrollLeft === nextCanScrollLeft &&
+        current.canScrollRight === nextCanScrollRight
+          ? current
+          : {
+              canScrollLeft: nextCanScrollLeft,
+              canScrollRight: nextCanScrollRight,
+              hasOverflow: nextHasOverflow,
+            },
+      );
+    };
+
+    let rafId: number | undefined;
+    const scheduleScrollStateUpdate = () => {
+      if (rafId !== undefined) {
+        return;
+      }
+
+      rafId = window.requestAnimationFrame(() => {
+        rafId = undefined;
+        updateScrollState();
+      });
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleScrollStateUpdate);
+
+    resizeObserver?.observe(shell);
+    shell.addEventListener("scroll", scheduleScrollStateUpdate, { passive: true });
+    window.addEventListener("resize", scheduleScrollStateUpdate);
+    updateScrollState();
+
+    return () => {
+      if (rafId !== undefined) {
+        window.cancelAnimationFrame(rafId);
+      }
+
+      resizeObserver?.disconnect();
+      shell.removeEventListener("scroll", scheduleScrollStateUpdate);
+      window.removeEventListener("resize", scheduleScrollStateUpdate);
+    };
+  }, [shellRef]);
+
+  return (
+    <div
+      className={`kanban-scroll-frame${scrollState.canScrollLeft ? " has-scroll-left" : ""}${scrollState.canScrollRight ? " has-scroll-right" : ""}${scrollState.hasOverflow ? " has-kanban-overflow" : ""}${isFocused ? " is-focused-column" : ""} ${motionClassName}`}
+    >
+      {scrollState.hasOverflow ? (
+        <div className="kanban-scroll-hints">
+          <button
+            aria-label="Scroll Kanban board left"
+            className={`kanban-scroll-hint kanban-scroll-hint-left${scrollState.canScrollLeft ? "" : " is-hidden"}`}
+            onClick={() => scrollHorizontally("left")}
+            type="button"
+          >
+            <IconChevronLeft />
+            <span aria-hidden="true" className="kanban-scroll-hint-label">
+              Scroll
+            </span>
+          </button>
+          <button
+            aria-label="Scroll Kanban board right"
+            className={`kanban-scroll-hint kanban-scroll-hint-right${scrollState.canScrollRight ? "" : " is-hidden"}`}
+            onClick={() => scrollHorizontally("right")}
+            type="button"
+          >
+            <span aria-hidden="true" className="kanban-scroll-hint-label">
+              Scroll
+            </span>
+            <IconChevronRight />
+          </button>
+        </div>
+      ) : null}
+      <div
+        className={`table-shell kanban-scroll-shell${isFocused ? " is-focused-column" : ""}`}
+        ref={shellRef}
+        style={style}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
