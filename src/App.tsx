@@ -4,11 +4,10 @@ import { KanbanColumns } from './features/kanban/KanbanColumns'
 import type { KanbanItemDragProps } from './features/kanban/useKanbanDrag'
 import { groupTasksByProject } from './features/kanban/projectSwimlanes'
 import { KanbanScrollFrame } from './features/kanban/KanbanScrollFrame'
-import { importedProjects } from './data/importedProjects'
 import './App.css'
 
 type ColumnId = 'inbox' | 'today' | 'doing' | 'done'
-type Task = { id: string; title: string; column: ColumnId; tag: string; project: string; priority: 'high' | 'normal' | 'low'; due?: string; time?: string; milestone?: boolean }
+type Task = { id: string; title: string; column: ColumnId; tag: string; project: string; priority: 'high' | 'normal' | 'low'; due?: string; time?: string; createdAt?: string; milestone?: boolean }
 type View = 'board' | 'projects' | 'roadmap' | 'focus'
 const columns: { id: ColumnId; label: string; tint: string }[] = [
   { id: 'inbox', label: 'To sort', tint: 'sage' },
@@ -16,33 +15,10 @@ const columns: { id: ColumnId; label: string; tint: string }[] = [
   { id: 'doing', label: 'In progress', tint: 'blue' },
   { id: 'done', label: 'Done', tint: 'lilac' },
 ]
-function dateOffset(months: number) {
-  const date = new Date()
-  date.setDate(1)
-  date.setMonth(date.getMonth() + months)
-  date.setDate(Math.min(15, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()))
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-function todayDate() {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-const initialTasks: Task[] = [
-  { id: 'a1', title: 'Book a table for Friday', column: 'inbox', tag: 'Life admin', project: 'Personal', priority: 'normal' },
-  { id: 'a2', title: 'Send the photos to Maya', column: 'inbox', tag: 'People', project: 'Personal', priority: 'low' },
-  { id: 'a3', title: 'Pick up the prescription', column: 'inbox', tag: 'Errands', project: 'Personal', priority: 'high', due: todayDate() },
-  { id: 'b1', title: 'Review the new project brief', column: 'today', tag: 'Studio', project: 'Studio', priority: 'high', time: '25 min' },
-  { id: 'b2', title: 'Take a proper lunch break', column: 'today', tag: 'Wellbeing', project: 'Personal', priority: 'normal' },
-  { id: 'b3', title: 'Water the balcony plants', column: 'today', tag: 'Home', project: 'Home', priority: 'low' },
-  { id: 'c1', title: 'Plan the week ahead', column: 'doing', tag: 'Personal', project: 'Personal', priority: 'normal', time: '10 min' },
-  { id: 'd1', title: 'Clear the kitchen counter', column: 'done', tag: 'Home', project: 'Home', priority: 'low' },
-  { id: 'm1', title: 'Approve the new direction', column: 'inbox', tag: 'Studio', project: 'Studio', priority: 'normal', due: dateOffset(1), milestone: true },
-  { id: 'm2', title: 'Share the first release', column: 'inbox', tag: 'Studio', project: 'Studio', priority: 'normal', due: dateOffset(3), milestone: true },
-]
 const storageKey = 'daymark.tasks.v1'
 const projectStorageKey = 'daymark.projects.v1'
-const importedProjectsKey = 'daymark.projects.imported.v1'
-const initialProjects = ['Personal', 'Studio', 'Home']
+const importedCodexHistoryKey = 'daymark.codex-history.imported.v1'
+const demoTaskIds = new Set(['a1', 'a2', 'a3', 'b1', 'b2', 'b3', 'c1', 'd1', 'm1', 'm2'])
 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function readTasks(): Task[] {
@@ -54,25 +30,20 @@ function readTasks(): Task[] {
       title: task.title ?? 'Untitled task',
       column: task.column ?? 'inbox',
       tag: task.tag ?? 'Personal',
-      project: task.project ?? (initialProjects.includes(task.tag ?? '') ? task.tag! : 'Personal'),
+      project: task.project ?? task.tag ?? 'Unsorted',
       priority: task.priority ?? 'normal',
       due: task.due === 'Today' ? new Date().toISOString().slice(0, 10) : task.due,
     })) as Task[]
   } catch { /* Use the starter board when saved data is unavailable. */ }
-  return initialTasks
+  return []
 }
 
 function readProjects(): string[] {
   try {
     const value = localStorage.getItem(projectStorageKey)
-    const projects = value ? JSON.parse(value) as string[] : initialProjects
-    if (localStorage.getItem(importedProjectsKey) === 'done') return projects
-    const merged = [...new Set([...projects, ...importedProjects])]
-    localStorage.setItem(projectStorageKey, JSON.stringify(merged))
-    localStorage.setItem(importedProjectsKey, 'done')
-    return merged
-  } catch { /* Fall back to starter and imported projects if saved data is unavailable. */ }
-  return [...new Set([...initialProjects, ...importedProjects])]
+    return value ? JSON.parse(value) as string[] : []
+  } catch { /* Start without projects when saved data is unavailable. */ }
+  return []
 }
 
 function IconButton({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
@@ -95,7 +66,7 @@ function TaskCard({ task, onMove, onDelete, onDragStart, onDragEnd, dragProps, s
     <div className="task-main">
       <div className="task-tags">{task.milestone && <span className="milestone-label"><Milestone size={11} /> Milestone</span>}{showProject && <span className="project-label">{task.project}</span>}{!task.milestone && <span className={`tag tag-${task.tag.toLowerCase().replace(' ', '-')}`}>{task.tag}</span>}{task.priority === 'high' && <span className="priority"><ArrowUp size={11} /> Important</span>}</div>
       <button className="task-title" onClick={onMove}>{task.title}</button>
-      {(task.due || task.time) && <div className="task-meta">{task.due && <span className="due-label"><CalendarDays size={12} /> {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${task.due}T12:00:00`))}</span>}{task.time && <span><Clock3 size={12} /> {task.time}</span>}</div>}
+      {(task.due || task.createdAt || task.time) && <div className="task-meta">{(task.due || task.createdAt) && <span className="due-label"><CalendarDays size={12} /> {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(`${task.due ?? task.createdAt}T12:00:00`))}</span>}{task.time && <span><Clock3 size={12} /> {task.time}</span>}</div>}
     </div>
     <button className="task-menu" aria-label={`Delete ${task.title}`} onClick={onDelete}><X size={14} /></button>
   </article>
@@ -129,6 +100,16 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showDone, setShowDone] = useState(true)
 
+  useEffect(() => {
+    if (localStorage.getItem(importedCodexHistoryKey) === 'done') return
+    fetch('/codex-history.json').then((response) => response.ok ? response.json() as Promise<Task[]> : null).then((history) => {
+      if (!history?.length || localStorage.getItem(importedCodexHistoryKey) === 'done') return
+      const retained = tasks.filter((task) => !demoTaskIds.has(task.id))
+      setTasks([...history, ...retained])
+      setProjects([...new Set([...history, ...retained].map((task) => task.project))])
+      localStorage.setItem(importedCodexHistoryKey, 'done')
+    }).catch(() => { /* History import is optional when this device has no local export. */ })
+  }, [tasks])
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(tasks)) }, [tasks])
   useEffect(() => { localStorage.setItem(projectStorageKey, JSON.stringify(projects)) }, [projects])
   const startAdd = useCallback((column: ColumnId, milestone = false) => { setDraftColumn(column); setDraftTitle(''); setDraftProject(projects[0] ?? 'Personal'); setDraftDue(''); setDraftMilestone(milestone) }, [projects])
