@@ -23,10 +23,14 @@ function dateOffset(months: number) {
   date.setDate(Math.min(15, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()))
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
+function todayDate() {
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 const initialTasks: Task[] = [
   { id: 'a1', title: 'Book a table for Friday', column: 'inbox', tag: 'Life admin', project: 'Personal', priority: 'normal' },
   { id: 'a2', title: 'Send the photos to Maya', column: 'inbox', tag: 'People', project: 'Personal', priority: 'low' },
-  { id: 'a3', title: 'Pick up the prescription', column: 'inbox', tag: 'Errands', project: 'Personal', priority: 'high', due: 'Today' },
+  { id: 'a3', title: 'Pick up the prescription', column: 'inbox', tag: 'Errands', project: 'Personal', priority: 'high', due: todayDate() },
   { id: 'b1', title: 'Review the new project brief', column: 'today', tag: 'Studio', project: 'Studio', priority: 'high', time: '25 min' },
   { id: 'b2', title: 'Take a proper lunch break', column: 'today', tag: 'Wellbeing', project: 'Personal', priority: 'normal' },
   { id: 'b3', title: 'Water the balcony plants', column: 'today', tag: 'Home', project: 'Home', priority: 'low' },
