@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
-import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, FolderKanban, GripVertical, LayoutGrid, ListFilter, Milestone, Plus, Search, Settings2, Sparkles, Sun, X } from 'lucide-react'
+import { ArrowUp, CalendarDays, Check, ChevronDown, Clock3, FolderKanban, GripVertical, LayoutGrid, ListFilter, Milestone, Plus, Search, Sun, Target, X } from 'lucide-react'
 import { KanbanColumns } from './features/kanban/KanbanColumns'
 import type { KanbanItemDragProps } from './features/kanban/useKanbanDrag'
 import { groupTasksByProject } from './features/kanban/projectSwimlanes'
@@ -15,6 +15,7 @@ const columns: { id: ColumnId; label: string; tint: string }[] = [
   { id: 'doing', label: 'In progress', tint: 'blue' },
   { id: 'done', label: 'Done', tint: 'lilac' },
 ]
+const viewLabels: Record<View, string> = { board: 'Today', projects: 'Projects', roadmap: 'Roadmap', focus: 'Focus' }
 const storageKey = 'daymark.tasks.v1'
 const projectStorageKey = 'daymark.projects.v1'
 const importedCodexHistoryKey = 'daymark.codex-history.imported.v1'
@@ -44,10 +45,6 @@ function readProjects(): string[] {
     return value ? JSON.parse(value) as string[] : []
   } catch { /* Start without projects when saved data is unavailable. */ }
   return []
-}
-
-function IconButton({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
-  return <button className="icon-button" aria-label={label} title={label} onClick={onClick}>{children}</button>
 }
 
 function TaskCard({ task, onMove, onDelete, onDragStart, onDragEnd, dragProps, showProject = false, 'data-kanban-item-id': kanbanItemId }: {
@@ -119,7 +116,7 @@ function App() {
   const boardItemsByState = useMemo(() => Object.fromEntries(columns.map((column) => [column.id, visibleTasks.filter((task) => task.column === column.id)])) as Record<ColumnId, Task[]>, [visibleTasks])
   const boardColumnDefinitions = useMemo(() => visibleColumns.map((column) => ({
     state: column.id,
-    header: <><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2><IconButton label={`Add to ${column.label.toLowerCase()}`} onClick={() => startAdd(column.id)}><Plus size={15} /></IconButton></>,
+    header: <><span className={`column-dot ${column.tint}`} /><h2>{column.label}</h2><button className="icon-button" aria-label={`Add to ${column.label.toLowerCase()}`} onClick={() => startAdd(column.id)}><Plus size={15} /></button></>,
     count: boardItemsByState[column.id].length,
   })), [boardItemsByState, startAdd, visibleColumns])
   const projectColumnDefinitions = useMemo(() => columns.map((column) => ({
@@ -143,7 +140,6 @@ function App() {
     })),
   }]
   const todayCount = tasks.filter((task) => task.column === 'today' || task.column === 'doing').length
-  const completedCount = tasks.filter((task) => task.column === 'done').length
 
   function addTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -179,12 +175,7 @@ function App() {
     setProjectName('')
     setProjectDraftOpen(false)
   }
-  function nextUp() {
-    const next = tasks.find((task) => task.column === 'today')
-    if (next) moveTask(next.id, 'doing')
-  }
-
-  const [date] = useState(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date()))
+  const focusTask = tasks.find((task) => task.column === 'doing') ?? tasks.find((task) => task.column === 'today')
   const [roadmapStart] = useState(() => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() } })
   const roadmapMonths = useMemo(() => Array.from({ length: 6 }, (_, index) => {
     const absoluteMonth = roadmapStart.month + index
@@ -198,45 +189,32 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#top" aria-label="Daymark home"><span className="brand-mark"><Sun size={17} strokeWidth={2.3} /></span><span>daymark</span></a>
-        <div className="space-label">YOUR SPACE <button aria-label="Space settings"><Settings2 size={14} /></button></div>
         <nav className="main-nav" aria-label="Main navigation">
-          <button className={activeView === 'board' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('board')}><LayoutGrid size={17} /> <span>My board</span><span className="nav-count">{todayCount}</span></button>
+          <button className={activeView === 'board' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('board')}><LayoutGrid size={17} /> <span>Today</span><span className="nav-count">{todayCount}</span></button>
           <button className={activeView === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('projects')}><FolderKanban size={17} /> <span>Projects</span></button>
           <button className={activeView === 'roadmap' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('roadmap')}><Milestone size={17} /> <span>Roadmap</span></button>
-          <button className={activeView === 'focus' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('focus')}><Sparkles size={17} /> <span>Focus mode</span></button>
+          <button className={activeView === 'focus' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('focus')}><Target size={17} /> <span>Focus</span></button>
         </nav>
-        <div className="sidebar-bottom">
-          <div className="streak-card"><div className="streak-icon"><Sun size={17} /></div><div><strong>One thing at a time.</strong><span>You’re making space for what matters.</span></div></div>
-          <button className="profile"><span className="avatar">B</span><span className="profile-name"><strong>Brian’s space</strong><small>Personal board</small></span><ChevronDown size={15} /></button>
-        </div>
       </aside>
 
       <main id="top" className="main-content">
         <header className="topbar">
-          <div className="breadcrumbs"><span>My space</span><span className="crumb-slash">/</span><strong>{{ board: 'My board', projects: 'Projects', roadmap: 'Roadmap', focus: 'Focus mode' }[activeView]}</strong></div>
+          <h1 className="topbar-title">{viewLabels[activeView]}</h1>
           <div className="topbar-actions">
-            <label className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a task" aria-label="Find a task" /><kbd><Command size={10} /> K</kbd></label>
-            <span className="topbar-divider" />
-            <IconButton label="Help"><CircleHelp size={17} /></IconButton>
-            <div className="create-wrap"><button className="create-button" onClick={() => setMenuOpen((open) => !open)}><Plus size={16} /> <span>{activeView === 'roadmap' ? 'New milestone' : 'New task'}</span><ChevronDown size={14} /></button>{menuOpen && <div className="create-menu">{activeView === 'roadmap' && <button onClick={() => { startAdd('inbox', true); setMenuOpen(false) }}>Add milestone</button>}<button onClick={() => { startAdd('today'); setMenuOpen(false) }}>Add to Today</button><button onClick={() => { startAdd('inbox'); setMenuOpen(false) }}>Capture for later</button>{activeView === 'projects' && <button onClick={() => { setProjectDraftOpen(true); setMenuOpen(false) }}>New project</button>}</div>}</div>
+            {activeView !== 'focus' && <>
+            <label className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a task" aria-label="Find a task" /></label>
+            <div className="create-wrap"><button className="create-button" aria-label={activeView === 'roadmap' ? 'Create milestone' : 'Create task'} onClick={() => setMenuOpen((open) => !open)}><Plus size={16} /> <span>{activeView === 'roadmap' ? 'New milestone' : 'New task'}</span><ChevronDown size={14} /></button>{menuOpen && <div className="create-menu">{activeView === 'roadmap' && <button onClick={() => { startAdd('inbox', true); setMenuOpen(false) }}>Add milestone</button>}<button onClick={() => { startAdd('today'); setMenuOpen(false) }}>Add to Today</button><button onClick={() => { startAdd('inbox'); setMenuOpen(false) }}>Capture for later</button>{activeView === 'projects' && <button onClick={() => { setProjectDraftOpen(true); setMenuOpen(false) }}>New project</button>}</div>}</div>
+            </>}
           </div>
         </header>
 
         {activeView === 'focus' ? (
-          <section className="focus-view">
-            <div className="focus-date"><Sun size={14} /> {date}</div>
-            <h1>Make room for<br /><em>one good thing.</em></h1>
-            <p className="focus-intro">A short list is a kind list. Pick one thing and give it your attention.</p>
-            {tasks.filter((task) => task.column === 'today' || task.column === 'doing').slice(0, 1).map((task) => <article className="focus-task" key={task.id}><span className="focus-task-check" /><div><small>{task.tag} · {task.time || 'Whenever you’re ready'}</small><strong>{task.title}</strong></div><button onClick={() => moveTask(task.id, 'done')} aria-label="Mark complete"><Check size={18} /></button></article>)}
-            <button className="focus-next" onClick={nextUp}>Bring the next task into focus <ArrowDown size={15} /></button>
-            <button className="focus-return" onClick={() => setActiveView('board')}>Back to my board</button>
+          <section className="focus-view" aria-label="Focus task">
+            {focusTask ? <article className="focus-task"><div><small>{focusTask.project} · {focusTask.column === 'today' ? 'Today' : 'In progress'}</small><strong>{focusTask.title}</strong></div><button onClick={() => moveTask(focusTask.id, 'done')} aria-label="Mark complete"><Check size={18} /></button></article> : <p className="focus-empty">Nothing in progress. Choose a task from Today.</p>}
+            <button className="focus-return" onClick={() => setActiveView('board')}>Back to Today</button>
           </section>
         ) : <>
-          <section className="page-heading">
-            <div><div className="date-line"><Sun size={14} /> {date}</div><h1>{activeView === 'board' ? <>Make today <em>yours.</em></> : activeView === 'projects' ? <>Projects, <em>in motion.</em></> : <>Plan the bigger <em>picture.</em></>}</h1><p>{activeView === 'board' ? 'A little structure for all the things on your mind.' : activeView === 'projects' ? 'See every project move through the same simple stages.' : 'Give milestones a date and see how your projects line up.'}</p></div>
-            {activeView === 'board' && <div className="day-summary"><div className="summary-avatars"><span>B</span><i>✦</i></div><div><strong>{todayCount} things in motion</strong><small>{completedCount ? `${completedCount} done today — nice work` : 'Take it one thing at a time'}</small></div></div>}
-          </section>
-          <div className="board-toolbar"><div className="board-tabs"><button className={activeView === 'board' ? 'tab-active' : ''} onClick={() => setActiveView('board')}><LayoutGrid size={15} /> Board</button><button className={activeView === 'projects' ? 'tab-active' : ''} onClick={() => setActiveView('projects')}><FolderKanban size={15} /> Projects</button><button className={activeView === 'roadmap' ? 'tab-active' : ''} onClick={() => setActiveView('roadmap')}><Milestone size={15} /> Roadmap</button></div><div className="board-tools"><span className="board-private"><span /> Just for you</span>{activeView === 'projects' && <button className="filter-button" onClick={() => setProjectDraftOpen((open) => !open)}><Plus size={15} /> New project</button>}{activeView === 'board' && <button className="filter-button" onClick={() => setShowDone((value) => !value)}><ListFilter size={15} /> {showDone ? 'Hide done' : 'Show done'}</button>}</div></div>
+          {activeView === 'board' && <div className="board-toolbar"><button className="filter-button" onClick={() => setShowDone((value) => !value)}><ListFilter size={15} /> {showDone ? 'Hide done' : 'Show done'}</button></div>}
           {projectDraftOpen && <form className="project-create" onSubmit={addProject}><FolderKanban size={16} /><input autoFocus value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Name your project" aria-label="Project name" /><button type="button" onClick={() => setProjectDraftOpen(false)} aria-label="Cancel"><X size={15} /></button><button className="draft-submit" type="submit" disabled={!projectName.trim()}><Check size={15} /> Add project</button></form>}
           {activeView === 'board' && <>
             {draftColumn && <div className="board-composer"><TaskComposer projects={projects} title={draftTitle} project={draftProject} due={draftDue} milestone={draftMilestone} onTitle={setDraftTitle} onProject={setDraftProject} onDue={setDraftDue} onMilestone={setDraftMilestone} onSubmit={addTask} onCancel={() => setDraftColumn(null)} /></div>}
@@ -255,7 +233,7 @@ function App() {
               onItemDrop={(task, target) => moveTask(task.id, target)}
               renderItem={(task, _state, dragProps) => <TaskCard data-kanban-item-id={task.id} task={task} dragProps={dragProps} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} />}
             /></KanbanScrollFrame>
-            <footer className="board-footer"><span><span className="local-indicator" /> Saved on this device</span><span>Drag tasks between columns · click a task to mark it done</span></footer>
+            <footer className="board-footer"><span><span className="local-indicator" /> Saved on this device</span></footer>
           </>}
           {activeView === 'projects' && <KanbanScrollFrame><KanbanColumns
             boardClassName="swimlanes-board"
