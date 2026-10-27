@@ -15,6 +15,8 @@ Create a production build with `npm run build` and preview it with `npm run prev
 
 Tasks are saved in this browser's local storage. The sample board is illustrative and can be changed or removed. Clearing site data clears the board; there is no account or cloud sync.
 
+On first load, Daymark adds discovered Mission Control project records, AutoDrive campaign runs, and local project workspaces to the project list. Existing tasks remain in place; the imported projects start with empty swimlanes.
+
 ## Current scope
 
 - Four daily stages: To sort, Today, In progress, and Done.

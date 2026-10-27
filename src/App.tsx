@@ -4,6 +4,7 @@ import { KanbanColumns } from './features/kanban/KanbanColumns'
 import type { KanbanItemDragProps } from './features/kanban/useKanbanDrag'
 import { groupTasksByProject } from './features/kanban/projectSwimlanes'
 import { KanbanScrollFrame } from './features/kanban/KanbanScrollFrame'
+import { importedProjects } from './data/importedProjects'
 import './App.css'
 
 type ColumnId = 'inbox' | 'today' | 'doing' | 'done'
@@ -36,6 +37,7 @@ const initialTasks: Task[] = [
 ]
 const storageKey = 'daymark.tasks.v1'
 const projectStorageKey = 'daymark.projects.v1'
+const importedProjectsKey = 'daymark.projects.imported.v1'
 const initialProjects = ['Personal', 'Studio', 'Home']
 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -59,9 +61,14 @@ function readTasks(): Task[] {
 function readProjects(): string[] {
   try {
     const value = localStorage.getItem(projectStorageKey)
-    if (value) return JSON.parse(value) as string[]
-  } catch { /* Use the starter projects when saved data is unavailable. */ }
-  return initialProjects
+    const projects = value ? JSON.parse(value) as string[] : initialProjects
+    if (localStorage.getItem(importedProjectsKey) === 'done') return projects
+    const merged = [...new Set([...projects, ...importedProjects])]
+    localStorage.setItem(projectStorageKey, JSON.stringify(merged))
+    localStorage.setItem(importedProjectsKey, 'done')
+    return merged
+  } catch { /* Fall back to starter and imported projects if saved data is unavailable. */ }
+  return [...new Set([...initialProjects, ...importedProjects])]
 }
 
 function IconButton({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
