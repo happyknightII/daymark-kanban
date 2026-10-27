@@ -18,7 +18,7 @@ const columns: { id: ColumnId; label: string; tint: string }[] = [
 const viewLabels: Record<View, string> = { board: 'Today', projects: 'Projects', roadmap: 'Roadmap', focus: 'Focus' }
 const storageKey = 'daymark.tasks.v1'
 const projectStorageKey = 'daymark.projects.v1'
-const importedCodexHistoryKey = 'daymark.codex-history.imported.v1'
+const importedCodexHistoryKey = 'daymark.local-updates.imported.v2'
 const demoTaskIds = new Set(['a1', 'a2', 'a3', 'b1', 'b2', 'b3', 'c1', 'd1', 'm1', 'm2'])
 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -99,13 +99,22 @@ function App() {
 
   useEffect(() => {
     if (localStorage.getItem(importedCodexHistoryKey) === 'done') return
-    fetch('/codex-history.json').then((response) => response.ok ? response.json() as Promise<Task[]> : null).then((history) => {
-      if (!history?.length || localStorage.getItem(importedCodexHistoryKey) === 'done') return
-      const retained = tasks.filter((task) => !demoTaskIds.has(task.id))
-      setTasks([...history, ...retained])
-      setProjects([...new Set([...history, ...retained].map((task) => task.project))])
+    const loadLocalTasks = (path: string) => fetch(path).then((response) => response.ok ? response.json() as Promise<Task[]> : []).catch(() => [])
+    Promise.all([loadLocalTasks('/codex-history.json'), loadLocalTasks('/project-updates.json')]).then(([history, updates]) => {
+      if (localStorage.getItem(importedCodexHistoryKey) === 'done') return
+      const incoming = [...history, ...updates]
+      if (!incoming.length) return
+      const incomingIds = new Set(incoming.map((task) => task.id))
+      const retained = tasks.filter((task) => !demoTaskIds.has(task.id) && !incomingIds.has(task.id))
+      const existing = new Map(tasks.map((task) => [task.id, task]))
+      const merged = incoming.map((task) => {
+        const saved = existing.get(task.id)
+        return saved ? { ...task, column: saved.column, due: saved.due, milestone: saved.milestone, priority: saved.priority } : task
+      })
+      setTasks([...merged, ...retained])
+      setProjects([...new Set([...merged, ...retained].map((task) => task.project))])
       localStorage.setItem(importedCodexHistoryKey, 'done')
-    }).catch(() => { /* History import is optional when this device has no local export. */ })
+    })
   }, [tasks])
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(tasks)) }, [tasks])
   useEffect(() => { localStorage.setItem(projectStorageKey, JSON.stringify(projects)) }, [projects])

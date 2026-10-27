@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 /public/codex-history.json
+/public/project-updates.json
 
 # Editor directories and files
 .vscode/*
