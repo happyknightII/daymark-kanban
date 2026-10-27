@@ -128,28 +128,22 @@
 .kanban-draggable-card.is-kanban-drag-source-active { opacity: .35; }
 .kanban-status-column { min-width: 0; }
 .kanban-project-group { min-width: 0; }
-.swimlanes-board { display: grid; gap: 0; min-width: max-content; padding: 8px 42px 24px; }
+.swimlanes-board { display: grid; gap: 0; min-width: 1100px; padding: 8px 42px 24px; }
 .kanban-scroll-shell > .swimlanes-board { width: max-content; min-width: 100%; }
 .kanban-swimlane-columns { display: grid; grid-template-columns: repeat(4, minmax(205px, 1fr)); gap: 17px; }
-.kanban-swimlane-statuses { padding-bottom: 7px; border-bottom: 1px solid #e2e8e0; background: #f7f8f4; }
-.kanban-swimlane-statuses .column-head { margin-bottom: 0; }
-.kanban-project-label { margin: 5px 0 0; }
-.kanban-project-toggle { display: flex; align-items: center; width: 100%; padding: 8px 2px; border: 0; color: #5f705f; background: transparent; text-align: left; font: inherit; cursor: pointer; }
-.kanban-project-toggle > span { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.kanban-project-lanes { display: grid; }
-.kanban-project-group.is-compact .kanban-project-lanes { display: none; }
-.kanban-swimlane { min-width: 0; border-bottom: 1px solid #e7ebe5; }
-.kanban-swimlane-label { display: flex; align-items: center; gap: 8px; min-height: 43px; padding: 7px 9px; color: #526154; list-style: none; cursor: pointer; }
-.kanban-swimlane-label::-webkit-details-marker { display: none; }
-.kanban-swimlane-label::marker { content: ''; }
-.kanban-swimlane-chevron { color: #879488; transition: transform .15s; }
-.kanban-swimlane:not([open]) .kanban-swimlane-chevron { transform: rotate(-90deg); }
+.kanban-swimlane-statuses { grid-template-columns: 190px repeat(4, minmax(205px, 1fr)); gap: 0; position: sticky; top: 0; z-index: 3; padding: 5px 9px; border-bottom: 1px solid #dfe6dc; background: #f7f8f4; }
+.kanban-swimlane-statuses .column-head { height: 34px; margin: 0; }
+.kanban-swimlane-project-axis { display: flex; align-items: center; color: #778578; font-size: 10px; font-weight: 700; }
+.kanban-project-group { min-width: 0; }
+.kanban-swimlane { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-width: 0; border-bottom: 1px solid #dfe6dc; }
+.kanban-swimlane-label { position: sticky; left: 0; z-index: 2; display: flex; align-items: flex-start; gap: 8px; min-height: 124px; padding: 15px 10px; border-right: 1px solid #e2e8df; color: #526154; background: #f7f8f4; }
+.kanban-swimlane-label .kanban-swimlane-count { order: 2; margin-left: auto; }
+.kanban-swimlane-count { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 5px; color: #637465; background: #e8ede5; font-size: 9px; font-weight: 600; }
+.kanban-swimlane .board-column { min-height: 124px; padding: 10px 8px; }
 .swimlane-project { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; }
 .swimlane-project > span:nth-child(2) { display: grid; gap: 4px; }
 .swimlane-project strong, .roadmap-project strong { color: #445348; font-size: 11px; }
 .swimlane-project small, .roadmap-project small { color: #929b92; font-size: 9px; }
-.swimlane-project > button { display: grid; place-items: center; width: 25px; height: 25px; margin-left: auto; border: 0; border-radius: 5px; color: #78877b; background: transparent; cursor: pointer; }
-.swimlane-project > button:hover { color: #4e7056; background: #e9efe6; }
 .lane-add { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; border: 1px dashed #e0e6de; border-radius: 5px; color: #99a199; background: transparent; font-size: 9px; cursor: pointer; }
 .lane-add:hover { color: #58745e; background: #f0f3ed; }
 @media (max-width: 1150px) { .board { grid-template-columns: repeat(2, minmax(210px, 1fr)); } }
@@ -173,6 +167,8 @@
   .focus-task strong { font-size: 13px; }
   .swimlanes-board { padding: 8px 12px 20px; }
   .kanban-swimlane-columns { grid-template-columns: repeat(4, minmax(178px, 1fr)); gap: 10px; }
+  .kanban-swimlane-statuses { grid-template-columns: 150px repeat(4, minmax(178px, 1fr)); }
+  .kanban-swimlane { grid-template-columns: 150px minmax(0, 1fr); }
   .roadmap { padding: 15px 10px 26px; }
   .roadmap-grid { grid-template-columns: 126px repeat(6, minmax(165px, 1fr)); min-width: 1116px; }
   .roadmap-undated > header { width: 115px; flex-basis: 115px; }

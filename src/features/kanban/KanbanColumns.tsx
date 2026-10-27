@@ -6,8 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import { KanbanColumnScrollArea } from "./KanbanColumnScrollArea";
-import { KanbanProjectGroup } from "./KanbanProjectGroup";
-import { KanbanSwimlane } from "./KanbanSwimlane";
 
 import { useKanbanDrag, type KanbanItemDragProps } from "./useKanbanDrag";
 
@@ -174,23 +172,20 @@ export function KanbanColumns<TState extends string, TItem>({
     <div className={`${boardClassName}${swimlaneGroups ? " has-swimlanes" : ""}`} style={style}>
       {swimlaneGroups ? (
         <div className="kanban-swimlane-columns kanban-swimlane-statuses">
+          <div className="kanban-swimlane-project-axis">Project</div>
           {columns.map((column) => renderColumn(column, [], true))}
         </div>
       ) : columns.map((column) => renderColumn(column, itemsByState[column.state], true))}
       {swimlaneGroups?.map((group) => (
-        <KanbanProjectGroup key={group.id} label={group.label} accentColor={group.accentColor}>
+        <section aria-label={group.label} className="kanban-project-group" key={group.id}>
           {group.lanes.map((lane) => (
-            <KanbanSwimlane
-              header={(
-                <>
-                  <span className="kanban-swimlane-count">
-                    {columns.reduce((total, column) => total + lane.itemsByState[column.state].length, 0)}
-                  </span>
-                  {lane.header}
-                </>
-              )}
-              key={lane.id}
-            >
+            <div className="kanban-swimlane" key={lane.id}>
+              <header className="kanban-swimlane-label">
+                <span className="kanban-swimlane-count">
+                  {columns.reduce((total, column) => total + lane.itemsByState[column.state].length, 0)}
+                </span>
+                {lane.header}
+              </header>
               <div className="kanban-swimlane-columns">
                 {columns.map((column) => renderColumn(
                   column,
@@ -201,9 +196,9 @@ export function KanbanColumns<TState extends string, TItem>({
                   lane.id,
                 ))}
               </div>
-            </KanbanSwimlane>
+            </div>
           ))}
-        </KanbanProjectGroup>
+        </section>
       ))}
     </div>
   );
