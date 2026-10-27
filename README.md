@@ -9,13 +9,34 @@ npm install
 npm run dev
 ```
 
-Create a production build with `npm run build` and preview it with `npm run preview`.
+The production app and API run together with `npm start` after `npm run build`.
 
 ## Data
 
-Tasks are saved in this browser's local storage. The sample board is illustrative and can be changed or removed. Clearing site data clears the board; there is no account or cloud sync.
+Tasks and projects are stored in `~/Projects/daymark-data/state.json`. The browser keeps a local backup and syncs with the API. The API is exposed only through this device's Tailscale Serve HTTPS route; callers need to be on the authorized tailnet.
 
-On first load, Daymark adds discovered Mission Control project records, AutoDrive campaign runs, and local project workspaces to the project list. Existing tasks remain in place; the imported projects start with empty swimlanes.
+On first start, the server seeds state from the local-only Codex history, project update, and project catalog files in `public/`, when present.
+
+## API
+
+Base URL on the tailnet: `https://llmhost2.tail72a2a1.ts.net:8443/api/v1`
+
+- `GET /` — API discovery document.
+- `GET /state` or `PUT /state` — read or replace all task and project state.
+- `GET /tasks` or `POST /tasks` — list tasks or create one. New tasks accept `title`, `project`, `column`, `priority`, `due`, and `milestone`.
+- `PATCH /tasks/{id}` or `DELETE /tasks/{id}` — update or remove a task.
+- `GET /projects` or `POST /projects` — list projects or create one with `{"name":"Project name"}`.
+
+Task columns are `inbox`, `today`, `doing`, and `done`; priorities are `high`, `normal`, and `low`. All request and response bodies are JSON. This endpoint is private to the tailnet and has no separate application token.
+
+Example:
+
+```sh
+curl https://llmhost2.tail72a2a1.ts.net:8443/api/v1/tasks
+curl -X POST https://llmhost2.tail72a2a1.ts.net:8443/api/v1/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Check stereo occlusion behavior","project":"Robot Perception","column":"today","priority":"normal"}'
+```
 
 ## Current scope
 

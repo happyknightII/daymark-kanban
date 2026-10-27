@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import { ArrowUp, CalendarDays, Check, ChevronDown, Clock3, FolderKanban, GripVertical, LayoutGrid, ListFilter, Milestone, Plus, Search, Sun, Target, X } from 'lucide-react'
 import { KanbanColumns } from './features/kanban/KanbanColumns'
 import type { KanbanItemDragProps } from './features/kanban/useKanbanDrag'
@@ -18,7 +18,7 @@ const columns: { id: ColumnId; label: string; tint: string }[] = [
 const viewLabels: Record<View, string> = { board: 'Today', projects: 'Projects', roadmap: 'Roadmap', focus: 'Focus' }
 const storageKey = 'daymark.tasks.v1'
 const projectStorageKey = 'daymark.projects.v1'
-const importedCodexHistoryKey = 'daymark.local-projects.imported.v3'
+const apiMigrationKey = 'daymark.api.migrated.v1'
 const demoTaskIds = new Set(['a1', 'a2', 'a3', 'b1', 'b2', 'b3', 'c1', 'd1', 'm1', 'm2'])
 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -84,6 +84,11 @@ function TaskComposer({ projects, title, project, due, milestone, onTitle, onPro
 function App() {
   const [tasks, setTasks] = useState<Task[]>(readTasks)
   const [projects, setProjects] = useState<string[]>(readProjects)
+  const [apiReady, setApiReady] = useState(false)
+  const [apiConnected, setApiConnected] = useState(false)
+  const apiRevision = useRef(0)
+  const pendingApiWrite = useRef(false)
+  const apiMigrationPending = useRef(false)
   const [query, setQuery] = useState('')
   const [activeView, setActiveView] = useState<View>('board')
   const [draftColumn, setDraftColumn] = useState<ColumnId | null>(null)
@@ -98,27 +103,82 @@ function App() {
   const [showDone, setShowDone] = useState(true)
 
   useEffect(() => {
-    if (localStorage.getItem(importedCodexHistoryKey) === 'done') return
-    const loadLocalTasks = (path: string) => fetch(path).then((response) => response.ok ? response.json() as Promise<Task[]> : []).catch(() => [])
-    const loadLocalProjects = () => fetch('/projects.json').then((response) => response.ok ? response.json() as Promise<string[]> : []).catch(() => [])
-    Promise.all([loadLocalTasks('/codex-history.json'), loadLocalTasks('/project-updates.json'), loadLocalProjects()]).then(([history, updates, projectCatalog]) => {
-      if (localStorage.getItem(importedCodexHistoryKey) === 'done') return
-      const incoming = [...history, ...updates]
-      if (!incoming.length && !projectCatalog.length) return
-      const incomingIds = new Set(incoming.map((task) => task.id))
-      const retained = tasks.filter((task) => !demoTaskIds.has(task.id) && !incomingIds.has(task.id))
-      const existing = new Map(tasks.map((task) => [task.id, task]))
-      const merged = incoming.map((task) => {
-        const saved = existing.get(task.id)
-        return saved ? { ...task, column: saved.column, due: saved.due, milestone: saved.milestone, priority: saved.priority } : task
-      })
-      setTasks([...merged, ...retained])
-      setProjects([...new Set([...projectCatalog, ...merged.map((task) => task.project), ...retained.map((task) => task.project)])])
-      localStorage.setItem(importedCodexHistoryKey, 'done')
+    let active = true
+    apiMigrationPending.current = localStorage.getItem(apiMigrationKey) !== 'done'
+    fetch('/api/v1/state').then(async (response) => {
+      if (!response.ok) throw new Error('Daymark API unavailable')
+      return await response.json() as { revision: number; tasks: Task[]; projects: string[] }
+    }).then((remote) => {
+      if (!active) return
+      let nextTasks = remote.tasks
+      let nextProjects = remote.projects
+      if (apiMigrationPending.current) {
+        const localTasks = readTasks().filter((task) => !demoTaskIds.has(task.id))
+        const savedById = new Map(localTasks.map((task) => [task.id, task]))
+        const remoteIds = new Set(remote.tasks.map((task) => task.id))
+        nextTasks = [
+          ...remote.tasks.map((task) => {
+            const saved = savedById.get(task.id)
+            return saved ? { ...task, column: saved.column, due: saved.due, milestone: saved.milestone, priority: saved.priority } : task
+          }),
+          ...localTasks.filter((task) => !remoteIds.has(task.id)),
+        ]
+        nextProjects = [...new Set([...remote.projects, ...readProjects(), ...nextTasks.map((task) => task.project)])]
+      }
+      apiRevision.current = remote.revision
+      setTasks(nextTasks)
+      setProjects(nextProjects)
+      setApiConnected(true)
+      setApiReady(true)
+    }).catch(() => {
+      if (!active) return
+      setApiConnected(false)
+      setApiReady(true)
     })
-  }, [tasks])
+    return () => { active = false }
+  }, [])
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(tasks)) }, [tasks])
   useEffect(() => { localStorage.setItem(projectStorageKey, JSON.stringify(projects)) }, [projects])
+  useEffect(() => {
+    if (!apiReady) return
+    pendingApiWrite.current = true
+    const timeout = window.setTimeout(() => {
+      fetch('/api/v1/state', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tasks, projects }),
+      }).then(async (response) => {
+        if (!response.ok) throw new Error('Daymark API write failed')
+        const result = await response.json() as { revision: number }
+        apiRevision.current = result.revision
+        if (apiMigrationPending.current) {
+          localStorage.setItem(apiMigrationKey, 'done')
+          apiMigrationPending.current = false
+        }
+        setApiConnected(true)
+      }).catch(() => setApiConnected(false)).finally(() => { pendingApiWrite.current = false })
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [apiReady, tasks, projects])
+  useEffect(() => {
+    if (!apiReady) return
+    const refresh = () => {
+      if (pendingApiWrite.current) return
+      fetch('/api/v1/state').then(async (response) => {
+        if (!response.ok) throw new Error('Daymark API unavailable')
+        return await response.json() as { revision: number; tasks: Task[]; projects: string[] }
+      }).then((remote) => {
+        setApiConnected(true)
+        if (remote.revision > apiRevision.current) {
+          apiRevision.current = remote.revision
+          setTasks(remote.tasks)
+          setProjects(remote.projects)
+        }
+      }).catch(() => setApiConnected(false))
+    }
+    const interval = window.setInterval(refresh, 3000)
+    return () => window.clearInterval(interval)
+  }, [apiReady])
   const startAdd = useCallback((column: ColumnId, milestone = false) => { setDraftColumn(column); setDraftTitle(''); setDraftProject(projects[0] ?? 'Personal'); setDraftDue(''); setDraftMilestone(milestone) }, [projects])
 
   const visibleColumns = columns.filter((column) => showDone || column.id !== 'done')
@@ -243,7 +303,7 @@ function App() {
               onItemDrop={(task, target) => moveTask(task.id, target)}
               renderItem={(task, _state, dragProps) => <TaskCard data-kanban-item-id={task.id} task={task} dragProps={dragProps} onMove={() => moveTask(task.id, task.column === 'done' ? 'today' : 'done')} onDelete={() => setTasks((current) => current.filter((item) => item.id !== task.id))} />}
             /></KanbanScrollFrame>
-            <footer className="board-footer"><span><span className="local-indicator" /> Saved on this device</span></footer>
+            <footer className="board-footer"><span><span className="local-indicator" /> {apiConnected ? 'Synced with Daymark API' : 'Saved on this device · API offline'}</span></footer>
           </>}
           {activeView === 'projects' && <KanbanScrollFrame><KanbanColumns
             boardClassName="swimlanes-board"
